@@ -1,0 +1,669 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Basketball Game Timer (Digital-7)</title>
+<style>
+  @import url('https://fonts.cdnfonts.com/css/digital-7-mono');
+
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  html, body {
+    background-color: #050505;
+    color: #ffffff;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    height: 100%;
+    height: 100dvh;
+    width: 100vw;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  
+  /* Status Header (38px) */
+  .header {
+    height: 38px;
+    flex-shrink: 0;
+    background-color: #111111;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0 12px;
+    border-bottom: 2px solid #222;
+  }
+  .header .title {
+    font-size: 0.85rem;
+    font-weight: 800;
+    letter-spacing: 1.5px;
+    color: #666;
+  }
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .header .status-badge {
+    padding: 2px 10px;
+    border-radius: 10px;
+    font-size: 0.75rem;
+    font-weight: 800;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    background-color: #262626;
+    color: #888;
+  }
+  .header .status-badge.running {
+    background-color: #00e676;
+    color: #000;
+  }
+  .header .status-badge.paused {
+    background-color: #ff9100;
+    color: #000;
+  }
+  .header .status-badge.ended {
+    background-color: #ff1744;
+    color: #fff;
+    animation: flash 0.5s infinite alternate;
+  }
+
+  /* 全画面切り替えボタン */
+  .btn-fs {
+    background-color: #333;
+    color: #fff;
+    border: 1px solid #555;
+    border-radius: 6px;
+    padding: 3px 10px;
+    font-size: 0.75rem;
+    font-weight: 800;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .btn-fs:active {
+    background-color: #555;
+  }
+
+  @keyframes flash {
+    from { opacity: 1; }
+    to { opacity: 0.3; }
+  }
+
+  /* Main Timer Display Area */
+  .timer-box {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    cursor: pointer;
+    background: radial-gradient(circle, #121212 0%, #030303 100%);
+    position: relative;
+    border: 4px solid transparent;
+    transition: border-color 0.15s;
+    overflow: hidden;
+  }
+  .timer-box.ended {
+    border-color: #ff1744;
+    background: #250005;
+  }
+  
+  .mode-label {
+    position: absolute;
+    top: 8px;
+    left: 16px;
+    font-size: 1.1rem;
+    font-weight: 900;
+    letter-spacing: 2px;
+    padding: 3px 12px;
+    border-radius: 6px;
+    background-color: #1a1a1a;
+    color: #ffd600;
+    border: 1px solid #333;
+  }
+  .mode-label.rest {
+    color: #76ff03;
+    border-color: #64dd17;
+  }
+
+  /* Digital-7 Digits Layer */
+  .digits-wrapper {
+    position: relative;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+  }
+
+  /* 背景の消灯セグメント（薄い88:88） */
+  .digits-bg {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    font-family: 'Digital-7 Mono', 'Digital-7', monospace;
+    font-size: min(30vw, 54vh);
+    color: rgba(255, 214, 0, 0.07);
+    line-height: 0.85;
+    transform: scaleY(1.32);
+    transform-origin: center center;
+    pointer-events: none;
+    white-space: nowrap;
+  }
+  .digits-bg.rest {
+    color: rgba(118, 255, 3, 0.08);
+  }
+
+  /* 点灯セグメント */
+  .digits-container {
+    position: relative;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    font-family: 'Digital-7 Mono', 'Digital-7', monospace;
+    font-size: min(30vw, 54vh);
+    font-weight: bold;
+    color: #ffd600;
+    text-shadow: 0 0 35px rgba(255, 214, 0, 0.5), 0 0 70px rgba(255, 214, 0, 0.25);
+    line-height: 0.85;
+    transform: scaleY(1.32);
+    transform-origin: center center;
+    white-space: nowrap;
+  }
+  /* 休憩モード: 鮮やかなライムグリーン */
+  .digits-container.rest {
+    color: #76ff03 !important;
+    text-shadow: 0 0 35px rgba(118, 255, 3, 0.6), 0 0 70px rgba(118, 255, 3, 0.3) !important;
+  }
+  /* GAMEモードの1分未満: オレンジレッド */
+  .digits-container.sub-second {
+    color: #ff3d00;
+    text-shadow: 0 0 35px rgba(255, 61, 0, 0.6), 0 0 70px rgba(255, 61, 0, 0.3);
+  }
+
+  .slot-num {
+    display: inline-block;
+    width: 0.56em;
+    text-align: center;
+  }
+  .slot-sep {
+    display: inline-block;
+    width: 0.30em;
+    text-align: center;
+  }
+
+  .tap-hint {
+    position: absolute;
+    bottom: 6px;
+    font-size: 0.8rem;
+    font-weight: bold;
+    color: #444;
+    letter-spacing: 1px;
+    pointer-events: none;
+  }
+
+  /* Control Panel */
+  .controls {
+    height: 75px;
+    flex-shrink: 0;
+    background-color: #111111;
+    display: grid;
+    grid-template-columns: 1.2fr 1.2fr 1fr 1fr 1fr 1fr 0.9fr;
+    gap: 6px;
+    padding: 8px 10px;
+    border-top: 2px solid #222;
+  }
+  .btn {
+    background-color: #222222;
+    color: #f0f0f0;
+    border: none;
+    border-radius: 8px;
+    font-size: clamp(0.8rem, 1.6vw, 1.1rem);
+    font-weight: 800;
+    cursor: pointer;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    transition: background-color 0.1s, transform 0.05s;
+    touch-action: manipulation;
+  }
+  .btn:active {
+    transform: scale(0.95);
+    background-color: #383838;
+  }
+  .btn-mode {
+    border: 2px solid transparent;
+  }
+  .btn-game {
+    background-color: #c62828;
+    color: #fff;
+  }
+  .btn-game.active {
+    border-color: #ffd600;
+    box-shadow: 0 0 10px rgba(255, 214, 0, 0.4);
+  }
+  .btn-rest {
+    background-color: #2e7d32;
+    color: #fff;
+  }
+  .btn-rest.active {
+    border-color: #76ff03;
+    box-shadow: 0 0 10px rgba(118, 255, 3, 0.4);
+  }
+  .btn-action {
+    background-color: #0d47a1;
+    color: #fff;
+  }
+  .btn-action:active {
+    background-color: #1976d2;
+  }
+</style>
+</head>
+<body>
+
+  <div class="header">
+    <div class="title">BASKETBALL TIMER</div>
+    <div class="header-right">
+      <button class="btn-fs" onclick="toggleFullScreen()" id="fsBtn">⛶ 全画面</button>
+      <div id="statusBadge" class="status-badge">READY</div>
+    </div>
+  </div>
+
+  <div class="timer-box" id="timerBox" onclick="toggleTimer()">
+    <div class="mode-label" id="modeLabel">GAME (8:00)</div>
+    <div class="digits-wrapper">
+      <div class="digits-bg" id="displayBg">
+        <span class="slot-num">8</span>
+        <span class="slot-num">8</span>
+        <span class="slot-sep">:</span>
+        <span class="slot-num">8</span>
+        <span class="slot-num">8</span>
+      </div>
+      <div class="digits-container" id="display">
+        <span class="slot-num">0</span>
+        <span class="slot-num">8</span>
+        <span class="slot-sep">:</span>
+        <span class="slot-num">0</span>
+        <span class="slot-num">0</span>
+      </div>
+    </div>
+    <div class="tap-hint" id="tapHint">画面タップで START / STOP</div>
+  </div>
+
+  <div class="controls">
+    <button class="btn btn-mode btn-game active" id="btnGame" onclick="setMode('game', 8 * 60 * 1000)">GAME<br>(8分)</button>
+    <button class="btn btn-mode btn-rest" id="btnRest" onclick="setMode('rest', 1 * 60 * 1000)">休憩<br>(1分)</button>
+    <button class="btn" onclick="adjustTime(60000)">+1 分</button>
+    <button class="btn" onclick="adjustTime(-60000)">-1 分</button>
+    <button class="btn" onclick="adjustTime(10000)">+10 秒</button>
+    <button class="btn" onclick="adjustTime(-10000)">-10 秒</button>
+    <button class="btn btn-action" onclick="testBuzzer()">📢 試聴</button>
+  </div>
+
+<script>
+  let currentMode = 'game';
+  let defaultDuration = 8 * 60 * 1000;
+  let remainingMs = defaultDuration;
+  let isRunning = false;
+  let lastTimestamp = null;
+  let animationFrameId = null;
+  let audioCtx = null;
+  let lastCountdownSec = -1;
+  let hasTriggeredOneMinAlert = false;
+
+  const displayEl = document.getElementById('display');
+  const displayBgEl = document.getElementById('displayBg');
+  const timerBoxEl = document.getElementById('timerBox');
+  const statusBadgeEl = document.getElementById('statusBadge');
+  const tapHintEl = document.getElementById('tapHint');
+  const modeLabelEl = document.getElementById('modeLabel');
+  const btnGameEl = document.getElementById('btnGame');
+  const btnRestEl = document.getElementById('btnRest');
+  const fsBtnEl = document.getElementById('fsBtn');
+
+  function toggleFullScreen() {
+    initAudio();
+    if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+      const docEl = document.documentElement;
+      if (docEl.requestFullscreen) {
+        docEl.requestFullscreen();
+      } else if (docEl.webkitRequestFullscreen) {
+        docEl.webkitRequestFullscreen();
+      }
+      fsBtnEl.textContent = '✕ 解除';
+    } else {
+      if (document.exitFullscreen) {
+        document.exitFullscreen();
+      } else if (document.webkitExitFullscreen) {
+        document.webkitExitFullscreen();
+      }
+      fsBtnEl.textContent = '⛶ 全画面';
+    }
+  }
+
+  document.addEventListener('fullscreenchange', updateFsButton);
+  document.addEventListener('webkitfullscreenchange', updateFsButton);
+  function updateFsButton() {
+    if (document.fullscreenElement || document.webkitFullscreenElement) {
+      fsBtnEl.textContent = '✕ 解除';
+    } else {
+      fsBtnEl.textContent = '⛶ 全画面';
+    }
+  }
+
+  function initAudio() {
+    if (!audioCtx) {
+      const AudioContext = window.AudioContext || window.webkitAudioContext;
+      audioCtx = new AudioContext();
+    }
+    if (audioCtx.state === 'suspended') {
+      audioCtx.resume();
+    }
+  }
+
+  // スタート時の英語発声「Start!」
+  function speakStart() {
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+      const utter = new SpeechSynthesisUtterance('Start');
+      utter.lang = 'en-US';
+      utter.rate = 1.35;
+      utter.pitch = 1.05;
+      utter.volume = 1.0;
+      window.speechSynthesis.speak(utter);
+    }
+  }
+
+  // 1分前の落ち着いた中低音ブザー音（220Hz + 330Hz）
+  function playOneMinAlert() {
+    initAudio();
+    const now = audioCtx.currentTime;
+    createLowHornBurst(now, 0.20);
+    createLowHornBurst(now + 0.26, 0.22);
+  }
+
+  function createLowHornBurst(startTime, duration) {
+    const osc1 = audioCtx.createOscillator();
+    const osc2 = audioCtx.createOscillator();
+    const osc3 = audioCtx.createOscillator();
+    const gainNode = audioCtx.createGain();
+
+    osc1.type = 'sawtooth';
+    osc1.frequency.setValueAtTime(220, startTime); // A3 (低音ホーン)
+    osc2.type = 'sawtooth';
+    osc2.frequency.setValueAtTime(330, startTime); // E4 (5度上の和音)
+    osc3.type = 'square';
+    osc3.frequency.setValueAtTime(440, startTime); // A4
+
+    gainNode.gain.setValueAtTime(0.85, startTime);
+    gainNode.gain.setValueAtTime(0.85, startTime + duration - 0.03);
+    gainNode.gain.exponentialRampToValueAtTime(0.001, startTime + duration);
+
+    osc1.connect(gainNode);
+    osc2.connect(gainNode);
+    osc3.connect(gainNode);
+    gainNode.connect(audioCtx.destination);
+
+    osc1.start(startTime);
+    osc2.start(startTime);
+    osc3.start(startTime);
+    osc1.stop(startTime + duration);
+    osc2.stop(startTime + duration);
+    osc3.stop(startTime + duration);
+  }
+
+  function speakCount(num) {
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+      const utter = new SpeechSynthesisUtterance(String(num));
+      utter.lang = 'en-US';
+      utter.rate = 1.35;
+      utter.pitch = 1.0;
+      utter.volume = 1.0;
+      window.speechSynthesis.speak(utter);
+    }
+  }
+
+  // 終了時ホーン（甲高いアリーナホーン）
+  function playBuzzer() {
+    initAudio();
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+    }
+    const now = audioCtx.currentTime;
+    
+    const osc1 = audioCtx.createOscillator();
+    const osc2 = audioCtx.createOscillator();
+    const osc3 = audioCtx.createOscillator();
+    const gainNode = audioCtx.createGain();
+
+    osc1.type = 'sawtooth';
+    osc1.frequency.setValueAtTime(420, now);
+    osc2.type = 'sawtooth';
+    osc2.frequency.setValueAtTime(560, now);
+    osc3.type = 'square';
+    osc3.frequency.setValueAtTime(840, now);
+
+    gainNode.gain.setValueAtTime(0.8, now);
+    gainNode.gain.setValueAtTime(0.8, now + 1.2);
+    gainNode.gain.exponentialRampToValueAtTime(0.001, now + 1.5);
+
+    osc1.connect(gainNode);
+    osc2.connect(gainNode);
+    osc3.connect(gainNode);
+    gainNode.connect(audioCtx.destination);
+
+    osc1.start(now);
+    osc2.start(now);
+    osc3.start(now);
+    osc1.stop(now + 1.5);
+    osc2.stop(now + 1.5);
+    osc3.stop(now + 1.5);
+  }
+
+  function testBuzzer() {
+    initAudio();
+    speakStart();
+    setTimeout(() => {
+      playOneMinAlert();
+      setTimeout(() => {
+        speakCount(3);
+        setTimeout(() => speakCount(2), 650);
+        setTimeout(() => speakCount(1), 1300);
+        setTimeout(() => playBuzzer(), 1950);
+      }, 800);
+    }, 1000);
+  }
+
+  function setMode(mode, ms) {
+    if (animationFrameId) cancelAnimationFrame(animationFrameId);
+    if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+    isRunning = false;
+    currentMode = mode;
+    defaultDuration = ms;
+    remainingMs = ms;
+    lastTimestamp = null;
+    lastCountdownSec = -1;
+    hasTriggeredOneMinAlert = (ms < 60000);
+
+    timerBoxEl.classList.remove('ended');
+    statusBadgeEl.textContent = 'READY';
+    statusBadgeEl.className = 'status-badge';
+    tapHintEl.textContent = '画面タップで START';
+
+    if (mode === 'game') {
+      btnGameEl.classList.add('active');
+      btnRestEl.classList.remove('active');
+      modeLabelEl.textContent = 'GAME (8:00)';
+      modeLabelEl.className = 'mode-label';
+      displayEl.classList.remove('rest');
+      displayBgEl.classList.remove('rest');
+    } else {
+      btnRestEl.classList.add('active');
+      btnGameEl.classList.remove('active');
+      modeLabelEl.textContent = '休憩 (1:00)';
+      modeLabelEl.className = 'mode-label rest';
+      displayEl.classList.add('rest');
+      displayBgEl.classList.add('rest');
+    }
+
+    updateDisplay();
+  }
+
+  function renderDigits(str, isSubSec) {
+    let html = '';
+    let bgHtml = '';
+    for (let char of str) {
+      if (char === ':' || char === '.') {
+        html += '<span class="slot-sep">' + char + '</span>';
+        bgHtml += '<span class="slot-sep">' + char + '</span>';
+      } else {
+        html += '<span class="slot-num">' + char + '</span>';
+        bgHtml += '<span class="slot-num">8</span>';
+      }
+    }
+    displayEl.innerHTML = html;
+    displayBgEl.innerHTML = bgHtml;
+    
+    // 休憩モードは常にライムグリーンを維持、GAMEモードのみ1分未満でオレンジレッド
+    if (currentMode === 'game' && isSubSec) {
+      displayEl.classList.add('sub-second');
+    } else {
+      displayEl.classList.remove('sub-second');
+    }
+  }
+
+  function updateDisplay() {
+    if (remainingMs <= 0) {
+      renderDigits("00.0", true);
+      return;
+    }
+    
+    if (remainingMs < 60000) {
+      const totalSeconds = (remainingMs / 1000);
+      let secStr = totalSeconds.toFixed(1);
+      if (totalSeconds < 10) {
+        secStr = "0" + secStr;
+      }
+      renderDigits(secStr, true);
+      return;
+    }
+
+    const totalSec = Math.ceil(remainingMs / 1000);
+    const m = Math.floor(totalSec / 60);
+    const s = totalSec % 60;
+    const mStr = String(m).padStart(2, '0');
+    const sStr = String(s).padStart(2, '0');
+    renderDigits(mStr + ':' + sStr, false);
+  }
+
+  function tick(currentTimestamp) {
+    if (!isRunning) return;
+
+    if (!lastTimestamp) {
+      lastTimestamp = currentTimestamp;
+    }
+
+    const elapsed = currentTimestamp - lastTimestamp;
+    lastTimestamp = currentTimestamp;
+
+    remainingMs -= elapsed;
+
+    // GAMEモード時のみ1分前の「ビビッ！」を鳴動
+    if (currentMode === 'game' && remainingMs <= 60000 && !hasTriggeredOneMinAlert) {
+      hasTriggeredOneMinAlert = true;
+      playOneMinAlert();
+    }
+
+    if (remainingMs > 0 && remainingMs <= 10000) {
+      const currentSec = Math.floor(remainingMs / 1000) + 1;
+      if (currentSec !== lastCountdownSec && currentSec <= 10 && currentSec >= 1) {
+        lastCountdownSec = currentSec;
+        speakCount(currentSec);
+      }
+    } else {
+      lastCountdownSec = -1;
+    }
+
+    if (remainingMs <= 0) {
+      remainingMs = 0;
+      isRunning = false;
+      lastCountdownSec = -1;
+      updateDisplay();
+      timerBoxEl.classList.add('ended');
+      statusBadgeEl.textContent = 'TIME UP';
+      statusBadgeEl.className = 'status-badge ended';
+      tapHintEl.textContent = currentMode === 'game' ? '試合終了' : '休憩終了';
+      playBuzzer();
+      return;
+    }
+
+    updateDisplay();
+    animationFrameId = requestAnimationFrame(tick);
+  }
+
+  function toggleTimer() {
+    initAudio();
+    if (remainingMs <= 0) {
+      setMode(currentMode, defaultDuration);
+      return;
+    }
+
+    isRunning = !isRunning;
+
+    if (isRunning) {
+      lastTimestamp = performance.now();
+      animationFrameId = requestAnimationFrame(tick);
+      statusBadgeEl.textContent = 'RUNNING';
+      statusBadgeEl.className = 'status-badge running';
+      tapHintEl.textContent = 'タップで PAUSE';
+      timerBoxEl.classList.remove('ended');
+      speakStart();
+    } else {
+      if (animationFrameId) cancelAnimationFrame(animationFrameId);
+      if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+      statusBadgeEl.textContent = 'PAUSED';
+      statusBadgeEl.className = 'status-badge paused';
+      tapHintEl.textContent = 'タップで RESUME';
+    }
+  }
+
+  function adjustTime(deltaMs) {
+    remainingMs = Math.max(0, remainingMs + deltaMs);
+    lastCountdownSec = -1;
+    if (remainingMs > 60000) {
+      hasTriggeredOneMinAlert = false;
+    }
+    if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+    updateDisplay();
+    if (remainingMs > 0 && timerBoxEl.classList.contains('ended')) {
+      timerBoxEl.classList.remove('ended');
+      statusBadgeEl.textContent = isRunning ? 'RUNNING' : 'PAUSED';
+      statusBadgeEl.className = 'status-badge ' + (isRunning ? 'running' : 'paused');
+    }
+  }
+
+  window.addEventListener('keydown', (e) => {
+    if (e.code === 'Space') {
+      e.preventDefault();
+      toggleTimer();
+    } else if (e.code === 'KeyG') {
+      setMode('game', 8 * 60 * 1000);
+    } else if (e.code === 'KeyR') {
+      setMode('rest', 1 * 60 * 1000);
+    }
+  });
+
+  updateDisplay();
+</script>
+</body>
+</html>
