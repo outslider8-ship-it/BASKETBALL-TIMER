@@ -179,7 +179,7 @@
     transform-origin: center center;
     white-space: nowrap;
   }
-  /* 休憩モード: 鮮やかなライムグリーン */
+  /* 休憩モード: 鮮やかなライムグリーン（最後まで維持） */
   .digits-container.rest {
     color: #76ff03 !important;
     text-shadow: 0 0 35px rgba(118, 255, 3, 0.6), 0 0 70px rgba(118, 255, 3, 0.3) !important;
@@ -301,7 +301,7 @@
 
   <div class="controls">
     <button class="btn btn-mode btn-game active" id="btnGame" onclick="setMode('game', 8 * 60 * 1000)">GAME<br>(8分)</button>
-    <button class="btn btn-mode btn-rest" id="btnRest" onclick="setMode('rest', 1 * 60 * 1000)">休憩<br>(1分)</button>
+    <button class="btn btn-mode btn-rest" id="btnRest" onclick="setMode('rest', 75 * 1000)">休憩<br>(1:15)</button>
     <button class="btn" onclick="adjustTime(60000)">+1 分</button>
     <button class="btn" onclick="adjustTime(-60000)">-1 分</button>
     <button class="btn" onclick="adjustTime(10000)">+10 秒</button>
@@ -319,6 +319,7 @@
   let audioCtx = null;
   let lastCountdownSec = -1;
   let hasTriggeredOneMinAlert = false;
+  let hasTriggeredRest15sAlert = false;
 
   const displayEl = document.getElementById('display');
   const displayBgEl = document.getElementById('displayBg');
@@ -370,21 +371,22 @@
     }
   }
 
-  // スタート時の英語発声「Start!」
+  // スタート時の英語発声（GAME時は「Start」、休憩時は「Water break」）
   function speakStart() {
     if ('speechSynthesis' in window) {
       window.speechSynthesis.cancel();
-      const utter = new SpeechSynthesisUtterance('Start');
+      const text = (currentMode === 'rest') ? 'Water break' : 'Start';
+      const utter = new SpeechSynthesisUtterance(text);
       utter.lang = 'en-US';
-      utter.rate = 1.35;
+      utter.rate = 1.3;
       utter.pitch = 1.05;
       utter.volume = 1.0;
       window.speechSynthesis.speak(utter);
     }
   }
 
-  // 1分前の落ち着いた中低音ブザー音（220Hz + 330Hz）
-  function playOneMinAlert() {
+  // 落ち着いた中低音ブザー音（ビビッ！ 220Hz+330Hz）
+  function playLowAlert() {
     initAudio();
     const now = audioCtx.currentTime;
     createLowHornBurst(now, 0.20);
@@ -398,9 +400,9 @@
     const gainNode = audioCtx.createGain();
 
     osc1.type = 'sawtooth';
-    osc1.frequency.setValueAtTime(220, startTime); // A3 (低音ホーン)
+    osc1.frequency.setValueAtTime(220, startTime); // A3 (中低音)
     osc2.type = 'sawtooth';
-    osc2.frequency.setValueAtTime(330, startTime); // E4 (5度上の和音)
+    osc2.frequency.setValueAtTime(330, startTime); // E4 (5度上)
     osc3.type = 'square';
     osc3.frequency.setValueAtTime(440, startTime); // A4
 
@@ -448,6 +450,7 @@
 
     osc1.type = 'sawtooth';
     osc1.frequency.setValueAtTime(420, now);
+    
     osc2.type = 'sawtooth';
     osc2.frequency.setValueAtTime(560, now);
     osc3.type = 'square';
@@ -474,14 +477,14 @@
     initAudio();
     speakStart();
     setTimeout(() => {
-      playOneMinAlert();
+      playLowAlert();
       setTimeout(() => {
         speakCount(3);
         setTimeout(() => speakCount(2), 650);
         setTimeout(() => speakCount(1), 1300);
         setTimeout(() => playBuzzer(), 1950);
       }, 800);
-    }, 1000);
+    }, 1100);
   }
 
   function setMode(mode, ms) {
@@ -494,6 +497,7 @@
     lastTimestamp = null;
     lastCountdownSec = -1;
     hasTriggeredOneMinAlert = (ms < 60000);
+    hasTriggeredRest15sAlert = (ms < 15000);
 
     timerBoxEl.classList.remove('ended');
     statusBadgeEl.textContent = 'READY';
@@ -510,7 +514,7 @@
     } else {
       btnRestEl.classList.add('active');
       btnGameEl.classList.remove('active');
-      modeLabelEl.textContent = '休憩 (1:00)';
+      modeLabelEl.textContent = '休憩 (1:15)';
       modeLabelEl.className = 'mode-label rest';
       displayEl.classList.add('rest');
       displayBgEl.classList.add('rest');
@@ -548,6 +552,7 @@
       return;
     }
     
+    // 1分未満の表示処理（GAME時は0.1秒単位、休憩時も0.1秒単位でライムグリーン維持）
     if (remainingMs < 60000) {
       const totalSeconds = (remainingMs / 1000);
       let secStr = totalSeconds.toFixed(1);
@@ -578,12 +583,19 @@
 
     remainingMs -= elapsed;
 
-    // GAMEモード時のみ1分前の「ビビッ！」を鳴動
+    // GAMEモード時: 残りちょうど1分（60秒）の中低音「ビビッ！」
     if (currentMode === 'game' && remainingMs <= 60000 && !hasTriggeredOneMinAlert) {
       hasTriggeredOneMinAlert = true;
-      playOneMinAlert();
+      playLowAlert();
     }
 
+    // 休憩モード時: 終了15秒前の中低音「ビビッ！」
+    if (currentMode === 'rest' && remainingMs <= 15000 && !hasTriggeredRest15sAlert) {
+      hasTriggeredRest15sAlert = true;
+      playLowAlert();
+    }
+
+    // 10秒前〜1秒前の英語音声カウントダウン
     if (remainingMs > 0 && remainingMs <= 10000) {
       const currentSec = Math.floor(remainingMs / 1000) + 1;
       if (currentSec !== lastCountdownSec && currentSec <= 10 && currentSec >= 1) {
@@ -643,6 +655,9 @@
     if (remainingMs > 60000) {
       hasTriggeredOneMinAlert = false;
     }
+    if (remainingMs > 15000) {
+      hasTriggeredRest15sAlert = false;
+    }
     if ('speechSynthesis' in window) window.speechSynthesis.cancel();
     updateDisplay();
     if (remainingMs > 0 && timerBoxEl.classList.contains('ended')) {
@@ -659,7 +674,7 @@
     } else if (e.code === 'KeyG') {
       setMode('game', 8 * 60 * 1000);
     } else if (e.code === 'KeyR') {
-      setMode('rest', 1 * 60 * 1000);
+      setMode('rest', 75 * 1000);
     }
   });
 
