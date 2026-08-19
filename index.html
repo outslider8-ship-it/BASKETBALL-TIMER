@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Basketball Game Timer (Digital-7)</title>
+<title>Basketball Game Timer</title>
 <style>
   @import url('https://fonts.cdnfonts.com/css/digital-7-mono');
 
@@ -15,9 +15,9 @@
     -webkit-user-select: none;
   }
   html, body {
-    background-color: #050505;
+    background-color: #000000;
     color: #ffffff;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     height: 100%;
     height: 100dvh;
     width: 100vw;
@@ -26,22 +26,22 @@
     flex-direction: column;
   }
   
-  /* Status Header (38px) */
+  /* ヘッダーエリア */
   .header {
-    height: 38px;
+    height: 34px;
     flex-shrink: 0;
-    background-color: #111111;
+    background-color: #0d0d0d;
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 0 12px;
-    border-bottom: 2px solid #222;
+    padding: 0 10px;
+    border-bottom: 2px solid #1f1f1f;
   }
   .header .title {
-    font-size: 0.85rem;
+    font-size: 0.8rem;
     font-weight: 800;
     letter-spacing: 1.5px;
-    color: #666;
+    color: #555;
   }
   .header-right {
     display: flex;
@@ -49,14 +49,14 @@
     gap: 8px;
   }
   .header .status-badge {
-    padding: 2px 10px;
-    border-radius: 10px;
+    padding: 2px 8px;
+    border-radius: 8px;
     font-size: 0.75rem;
-    font-weight: 800;
+    font-weight: 900;
     letter-spacing: 1px;
     text-transform: uppercase;
-    background-color: #262626;
-    color: #888;
+    background-color: #222;
+    color: #777;
   }
   .header .status-badge.running {
     background-color: #00e676;
@@ -73,28 +73,22 @@
   }
 
   .btn-fs {
-    background-color: #333;
-    color: #fff;
-    border: 1px solid #555;
+    background-color: #2a2a2a;
+    color: #eee;
+    border: 1px solid #444;
     border-radius: 6px;
-    padding: 3px 10px;
-    font-size: 0.75rem;
+    padding: 2px 8px;
+    font-size: 0.72rem;
     font-weight: 800;
     cursor: pointer;
-    display: flex;
-    align-items: center;
-    gap: 4px;
-  }
-  .btn-fs:active {
-    background-color: #555;
   }
 
   @keyframes flash {
     from { opacity: 1; }
-    to { opacity: 0.3; }
+    to { opacity: 0.25; }
   }
 
-  /* Main Timer Display Area */
+  /* メインタイマー表示エリア */
   .timer-box {
     flex: 1;
     min-height: 0;
@@ -102,10 +96,9 @@
     justify-content: center;
     align-items: center;
     cursor: pointer;
-    background: radial-gradient(circle, #121212 0%, #030303 100%);
+    background: radial-gradient(circle, #151515 0%, #000000 100%);
     position: relative;
     border: 4px solid transparent;
-    transition: border-color 0.15s;
     overflow: hidden;
   }
   .timer-box.ended {
@@ -115,29 +108,34 @@
   
   .mode-label {
     position: absolute;
-    top: 8px;
-    left: 16px;
-    font-size: 1.1rem;
+    top: 6px;
+    left: 12px;
+    font-size: 1.05rem;
     font-weight: 900;
-    letter-spacing: 2px;
-    padding: 3px 12px;
+    letter-spacing: 1.5px;
+    padding: 2px 10px;
     border-radius: 6px;
-    background-color: #1a1a1a;
+    background-color: #141414;
     color: #ffd600;
-    border: 1px solid #333;
+    border: 1px solid #282828;
+    z-index: 10;
   }
   .mode-label.rest {
     color: #76ff03;
-    border-color: #64dd17;
+    border-color: #43a047;
   }
 
+  /* 特大 Digital-7 タイマー表示レイヤー */
   .digits-wrapper {
     position: relative;
     display: flex;
     justify-content: center;
     align-items: center;
+    width: 100%;
+    height: 100%;
   }
 
+  /* 消灯セグメント（背景ガイド 88:88 / 88.8） */
   .digits-bg {
     position: absolute;
     top: 0;
@@ -148,40 +146,44 @@
     justify-content: center;
     align-items: center;
     font-family: 'Digital-7 Mono', 'Digital-7', monospace;
-    font-size: min(30vw, 54vh);
-    color: rgba(255, 214, 0, 0.07);
-    line-height: 0.85;
-    transform: scaleY(1.32);
+    font-size: min(35vw, 62vh);
+    color: rgba(255, 214, 0, 0.05);
+    line-height: 0.82;
+    transform: scaleY(1.35);
     transform-origin: center center;
     pointer-events: none;
     white-space: nowrap;
   }
   .digits-bg.rest {
-    color: rgba(118, 255, 3, 0.08);
+    color: rgba(118, 255, 3, 0.06);
   }
 
+  /* 点灯セグメント */
   .digits-container {
     position: relative;
     display: flex;
     justify-content: center;
     align-items: center;
     font-family: 'Digital-7 Mono', 'Digital-7', monospace;
-    font-size: min(30vw, 54vh);
+    font-size: min(35vw, 62vh);
     font-weight: bold;
     color: #ffd600;
-    text-shadow: 0 0 35px rgba(255, 214, 0, 0.5), 0 0 70px rgba(255, 214, 0, 0.25);
-    line-height: 0.85;
-    transform: scaleY(1.32);
+    text-shadow: 0 0 35px rgba(255, 214, 0, 0.6), 0 0 70px rgba(255, 214, 0, 0.3);
+    line-height: 0.82;
+    transform: scaleY(1.35);
     transform-origin: center center;
     white-space: nowrap;
+    z-index: 2;
   }
+  /* 休憩モード: 鮮やかなライムグリーン（最後まで維持） */
   .digits-container.rest {
     color: #76ff03 !important;
-    text-shadow: 0 0 35px rgba(118, 255, 3, 0.6), 0 0 70px rgba(118, 255, 3, 0.3) !important;
+    text-shadow: 0 0 35px rgba(118, 255, 3, 0.7), 0 0 70px rgba(118, 255, 3, 0.35) !important;
   }
+  /* GAMEモードの1分未満: オレンジレッド */
   .digits-container.sub-second {
     color: #ff3d00;
-    text-shadow: 0 0 35px rgba(255, 61, 0, 0.6), 0 0 70px rgba(255, 61, 0, 0.3);
+    text-shadow: 0 0 35px rgba(255, 61, 0, 0.7), 0 0 70px rgba(255, 61, 0, 0.35);
   }
 
   .slot-num {
@@ -197,48 +199,48 @@
 
   .tap-hint {
     position: absolute;
-    bottom: 6px;
-    font-size: 0.8rem;
+    bottom: 4px;
+    font-size: 0.75rem;
     font-weight: bold;
-    color: #444;
+    color: #383838;
     letter-spacing: 1px;
     pointer-events: none;
+    z-index: 10;
   }
 
-  /* Control Panel */
+  /* コントロールパネル */
   .controls {
-    height: 75px;
+    height: 68px;
     flex-shrink: 0;
-    background-color: #111111;
+    background-color: #0a0a0a;
     display: grid;
     grid-template-columns: 1.2fr 1.2fr 1fr 1fr 1fr 1fr 0.9fr;
-    gap: 6px;
-    padding: 8px 10px;
-    border-top: 2px solid #222;
+    gap: 5px;
+    padding: 6px 8px;
+    border-top: 2px solid #1a1a1a;
   }
   .btn {
-    background-color: #222222;
+    background-color: #1e1e1e;
     color: #f0f0f0;
     border: none;
     border-radius: 8px;
-    font-size: clamp(0.8rem, 1.6vw, 1.1rem);
+    font-size: clamp(0.78rem, 1.5vw, 1.05rem);
     font-weight: 800;
     cursor: pointer;
     display: flex;
     justify-content: center;
     align-items: center;
-    transition: background-color 0.1s, transform 0.05s;
     touch-action: manipulation;
   }
   .btn:active {
-    transform: scale(0.95);
-    background-color: #383838;
+    transform: scale(0.96);
+    background-color: #333;
   }
   .btn-mode {
     border: 2px solid transparent;
   }
   .btn-game {
-    background-color: #c62828;
+    background-color: #b71c1c;
     color: #fff;
   }
   .btn-game.active {
@@ -246,7 +248,7 @@
     box-shadow: 0 0 10px rgba(255, 214, 0, 0.4);
   }
   .btn-rest {
-    background-color: #2e7d32;
+    background-color: #1b5e20;
     color: #fff;
   }
   .btn-rest.active {
@@ -256,9 +258,6 @@
   .btn-action {
     background-color: #0d47a1;
     color: #fff;
-  }
-  .btn-action:active {
-    background-color: #1976d2;
   }
 </style>
 </head>
@@ -283,7 +282,7 @@
         <span class="slot-num">8</span>
       </div>
       <div class="digits-container" id="display">
-        <span class="slot-num">0</span>
+        <span class="slot-num" style="visibility: hidden;">0</span>
         <span class="slot-num">8</span>
         <span class="slot-sep">:</span>
         <span class="slot-num">0</span>
@@ -310,10 +309,12 @@
   let isRunning = false;
   let lastTimestamp = null;
   let animationFrameId = null;
-  let audioCtx = null;
   let lastCountdownSec = -1;
   let hasTriggeredOneMinAlert = false;
   let hasTriggeredRest15sAlert = false;
+
+  // Web Audio API 用のコンテキスト
+  let audioCtx = null;
 
   const displayEl = document.getElementById('display');
   const displayBgEl = document.getElementById('displayBg');
@@ -325,40 +326,46 @@
   const btnRestEl = document.getElementById('btnRest');
   const fsBtnEl = document.getElementById('fsBtn');
 
-  // モバイル端末向け音声初期化
-  function initAudio() {
+  // モバイル端末でのオーディオ＆音声合成エンジンのロック解除
+  function initAudioEngine() {
     if (!audioCtx) {
-      const AudioContext = window.AudioContext || window.webkitAudioContext;
-      audioCtx = new AudioContext();
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      audioCtx = new AudioContextClass();
     }
     if (audioCtx.state === 'suspended') {
       audioCtx.resume();
     }
-    // Web Speech API の無音空打ち（モバイルの再生ロック解除）
     if ('speechSynthesis' in window) {
       if (window.speechSynthesis.paused) {
         window.speechSynthesis.resume();
       }
-      const dummyUtter = new SpeechSynthesisUtterance('');
-      window.speechSynthesis.speak(dummyUtter);
     }
   }
 
-  // 確実な音声読み上げ関数
+  // 画面初回のタッチで発火させて制限を確実に解除
+  document.addEventListener('touchstart', function unlockFirst() {
+    initAudioEngine();
+    if ('speechSynthesis' in window) {
+      const dummyUtter = new SpeechSynthesisUtterance('');
+      dummyUtter.volume = 0;
+      window.speechSynthesis.speak(dummyUtter);
+    }
+    document.removeEventListener('touchstart', unlockFirst);
+  }, { once: true });
+
+
+  // ====== 音声・ブザー再生ロジック ======
+
   function safeSpeak(text) {
     if (!('speechSynthesis' in window)) return;
-    
-    window.speechSynthesis.cancel();
-    if (window.speechSynthesis.paused) {
-      window.speechSynthesis.resume();
-    }
+    initAudioEngine();
+    window.speechSynthesis.cancel(); // 前の音声をクリア
 
     const utter = new SpeechSynthesisUtterance(text);
     utter.lang = 'en-US';
     utter.rate = 1.25;
-    utter.pitch = 1.0;
+    utter.pitch = 1.05;
     utter.volume = 1.0;
-
     window.speechSynthesis.speak(utter);
   }
 
@@ -367,8 +374,81 @@
     safeSpeak(text);
   }
 
+  // 強烈な音圧の2連ブザー（1分前 / 15秒前）
+  function playLowAlert() {
+    initAudioEngine();
+    const now = audioCtx.currentTime;
+    
+    // 0.2秒鳴る -> 0.1秒休む -> 0.2秒鳴る
+    createSquareBeep(now, 0.20);
+    createSquareBeep(now + 0.30, 0.20);
+  }
+
+  function createSquareBeep(startTime, duration) {
+    const gainNode = audioCtx.createGain();
+    // アタックを強く、減衰を急にする
+    gainNode.gain.setValueAtTime(1.0, startTime);
+    gainNode.gain.setValueAtTime(1.0, startTime + duration - 0.05);
+    gainNode.gain.exponentialRampToValueAtTime(0.001, startTime + duration);
+    gainNode.connect(audioCtx.destination);
+
+    // 矩形波とノコギリ波を混ぜて、電子ブザー特有の「ビビッ！」という太い音を合成
+    const freqs = [220, 330, 440];
+    freqs.forEach(f => {
+      const osc = audioCtx.createOscillator();
+      osc.type = 'square'; // 矩形波
+      osc.frequency.setValueAtTime(f, startTime);
+      osc.connect(gainNode);
+      osc.start(startTime);
+      osc.stop(startTime + duration);
+    });
+  }
+
+  // アリーナホーン（タイムアップ時の甲高いブーッ！）
+  function playBuzzer() {
+    initAudioEngine();
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+    }
+    const now = audioCtx.currentTime;
+    const duration = 1.5;
+
+    const gainNode = audioCtx.createGain();
+    gainNode.gain.setValueAtTime(1.0, now);
+    gainNode.gain.setValueAtTime(1.0, now + duration - 0.1);
+    gainNode.gain.exponentialRampToValueAtTime(0.001, now + duration);
+    gainNode.connect(audioCtx.destination);
+
+    // 不協和音で緊迫感を出す
+    const freqs = [420, 560, 840];
+    freqs.forEach(f => {
+      const osc = audioCtx.createOscillator();
+      osc.type = 'sawtooth'; // ノコギリ波
+      osc.frequency.setValueAtTime(f, now);
+      osc.connect(gainNode);
+      osc.start(now);
+      osc.stop(now + duration);
+    });
+  }
+
+  function testBuzzer() {
+    initAudioEngine();
+    speakStart();
+    setTimeout(() => {
+      playLowAlert();
+      setTimeout(() => {
+        safeSpeak("3");
+        setTimeout(() => safeSpeak("2"), 650);
+        setTimeout(() => safeSpeak("1"), 1300);
+        setTimeout(() => playBuzzer(), 1950);
+      }, 800);
+    }, 1100);
+  }
+
+  // ====== タイマー制御ロジック ======
+
   function toggleFullScreen() {
-    initAudio();
+    initAudioEngine();
     if (!document.fullscreenElement && !document.webkitFullscreenElement) {
       const docEl = document.documentElement;
       if (docEl.requestFullscreen) {
@@ -397,96 +477,8 @@
     }
   }
 
-  // 1分前/15秒前 中低音ブザー（ビビッ！）
-  function playLowAlert() {
-    initAudio();
-    const now = audioCtx.currentTime;
-    createLowHornBurst(now, 0.20);
-    createLowHornBurst(now + 0.26, 0.22);
-  }
-
-  function createLowHornBurst(startTime, duration) {
-    const osc1 = audioCtx.createOscillator();
-    const osc2 = audioCtx.createOscillator();
-    const osc3 = audioCtx.createOscillator();
-    const gainNode = audioCtx.createGain();
-
-    osc1.type = 'sawtooth';
-    osc1.frequency.setValueAtTime(220, startTime);
-    osc2.type = 'sawtooth';
-    osc2.frequency.setValueAtTime(330, startTime);
-    osc3.type = 'square';
-    osc3.frequency.setValueAtTime(440, startTime);
-
-    gainNode.gain.setValueAtTime(0.85, startTime);
-    gainNode.gain.setValueAtTime(0.85, startTime + duration - 0.03);
-    gainNode.gain.exponentialRampToValueAtTime(0.001, startTime + duration);
-
-    osc1.connect(gainNode);
-    osc2.connect(gainNode);
-    osc3.connect(gainNode);
-    gainNode.connect(audioCtx.destination);
-
-    osc1.start(startTime);
-    osc2.start(startTime);
-    osc3.start(startTime);
-    osc1.stop(startTime + duration);
-    osc2.stop(startTime + duration);
-    osc3.stop(startTime + duration);
-  }
-
-  // タイムアップ時アリーナホーン
-  function playBuzzer() {
-    initAudio();
-    if ('speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
-    }
-    const now = audioCtx.currentTime;
-    
-    const osc1 = audioCtx.createOscillator();
-    const osc2 = audioCtx.createOscillator();
-    const osc3 = audioCtx.createOscillator();
-    const gainNode = audioCtx.createGain();
-
-    osc1.type = 'sawtooth';
-    osc1.frequency.setValueAtTime(420, now);
-    osc2.type = 'sawtooth';
-    osc2.frequency.setValueAtTime(560, now);
-    osc3.type = 'square';
-    osc3.frequency.setValueAtTime(840, now);
-
-    gainNode.gain.setValueAtTime(0.8, now);
-    gainNode.gain.setValueAtTime(0.8, now + 1.2);
-    gainNode.gain.exponentialRampToValueAtTime(0.001, now + 1.5);
-
-    osc1.connect(gainNode);
-    osc2.connect(gainNode);
-    osc3.connect(gainNode);
-    gainNode.connect(audioCtx.destination);
-
-    osc1.start(now);
-    osc2.start(now);
-    osc3.start(now);
-    osc1.stop(now + 1.5);
-    osc2.stop(now + 1.5);
-    osc3.stop(now + 1.5);
-  }
-
-  function testBuzzer() {
-    initAudio();
-    speakStart();
-    setTimeout(() => {
-      playLowAlert();
-      setTimeout(() => {
-        safeSpeak("3");
-        setTimeout(() => safeSpeak("2"), 650);
-        setTimeout(() => safeSpeak("1"), 1300);
-        setTimeout(() => playBuzzer(), 1950);
-      }, 800);
-    }, 1100);
-  }
-
   function setMode(mode, ms) {
+    initAudioEngine();
     if (animationFrameId) cancelAnimationFrame(animationFrameId);
     if ('speechSynthesis' in window) window.speechSynthesis.cancel();
     isRunning = false;
@@ -529,6 +521,10 @@
       if (char === ':' || char === '.') {
         html += '<span class="slot-sep">' + char + '</span>';
         bgHtml += '<span class="slot-sep">' + char + '</span>';
+      } else if (char === ' ') {
+        // 空白（10の位が0の場合）は不可視の0を置いてレイアウトを保つ
+        html += '<span class="slot-num" style="visibility: hidden;">0</span>';
+        bgHtml += '<span class="slot-num">8</span>';
       } else {
         html += '<span class="slot-num">' + char + '</span>';
         bgHtml += '<span class="slot-num">8</span>';
@@ -546,15 +542,17 @@
 
   function updateDisplay() {
     if (remainingMs <= 0) {
-      renderDigits("00.0", true);
+      renderDigits(" 0.0", true); // 0秒ジャストの場合は10の位を非表示
       return;
     }
     
+    // 残り1分を切ったら、コンマ秒表示へ
     if (remainingMs < 60000) {
       const totalSeconds = (remainingMs / 1000);
       let secStr = totalSeconds.toFixed(1);
+      // 10秒未満の場合、10の位にスペース（非表示）を入れる
       if (totalSeconds < 10) {
-        secStr = "0" + secStr;
+        secStr = " " + secStr;
       }
       renderDigits(secStr, true);
       return;
@@ -563,7 +561,8 @@
     const totalSec = Math.ceil(remainingMs / 1000);
     const m = Math.floor(totalSec / 60);
     const s = totalSec % 60;
-    const mStr = String(m).padStart(2, '0');
+    // 分の10の位が0の場合はスペースでパディングして非表示に
+    const mStr = String(m).padStart(2, ' ');
     const sStr = String(s).padStart(2, '0');
     renderDigits(mStr + ':' + sStr, false);
   }
@@ -580,19 +579,19 @@
 
     remainingMs -= elapsed;
 
-    // GAMEモード: 1分前
+    // GAMEモード: 残り1分到達時
     if (currentMode === 'game' && remainingMs <= 60000 && !hasTriggeredOneMinAlert) {
       hasTriggeredOneMinAlert = true;
       playLowAlert();
     }
 
-    // 休憩モード: 15秒前
+    // 休憩モード: 残り15秒到達時
     if (currentMode === 'rest' && remainingMs <= 15000 && !hasTriggeredRest15sAlert) {
       hasTriggeredRest15sAlert = true;
       playLowAlert();
     }
 
-    // 10秒〜1秒 カウントダウン
+    // 10秒〜1秒 英語カウントダウン
     if (remainingMs > 0 && remainingMs <= 10000) {
       const currentSec = Math.floor(remainingMs / 1000) + 1;
       if (currentSec !== lastCountdownSec && currentSec <= 10 && currentSec >= 1) {
@@ -621,7 +620,7 @@
   }
 
   function toggleTimer() {
-    initAudio();
+    initAudioEngine();
     if (remainingMs <= 0) {
       setMode(currentMode, defaultDuration);
       return;
@@ -647,6 +646,7 @@
   }
 
   function adjustTime(deltaMs) {
+    initAudioEngine();
     remainingMs = Math.max(0, remainingMs + deltaMs);
     lastCountdownSec = -1;
     if (remainingMs > 60000) {
@@ -674,12 +674,6 @@
       setMode('rest', 75 * 1000);
     }
   });
-
-  // 初回タッチで確実に音声権限をアンロック
-  document.addEventListener('touchstart', function initOnTouch() {
-    initAudio();
-    document.removeEventListener('touchstart', initOnTouch);
-  }, { once: true });
 
   updateDisplay();
 </script>
