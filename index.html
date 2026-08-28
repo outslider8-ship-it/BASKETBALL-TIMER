@@ -272,7 +272,7 @@
   </div>
 
   <div class="timer-box" id="timerBox" onclick="toggleTimer()">
-    <div class="mode-label" id="modeLabel">GAME (8:00)</div>
+    <div class="mode-label" id="modeLabel">GAME (5:00)</div>
     <div class="digits-wrapper">
       <div class="digits-bg" id="displayBg">
         <span class="slot-num">8</span>
@@ -283,7 +283,7 @@
       </div>
       <div class="digits-container" id="display">
         <span class="slot-num" style="visibility: hidden;">0</span>
-        <span class="slot-num">8</span>
+        <span class="slot-num">5</span>
         <span class="slot-sep">:</span>
         <span class="slot-num">0</span>
         <span class="slot-num">0</span>
@@ -293,7 +293,7 @@
   </div>
 
   <div class="controls">
-    <button class="btn btn-mode btn-game active" id="btnGame" onclick="setMode('game', 8 * 60 * 1000)">GAME<br>(8分)</button>
+    <button class="btn btn-mode btn-game active" id="btnGame" onclick="setMode('game', 5 * 60 * 1000)">GAME<br>(5分)</button>
     <button class="btn btn-mode btn-rest" id="btnRest" onclick="setMode('rest', 75 * 1000)">休憩<br>(1:15)</button>
     <button class="btn" onclick="adjustTime(60000)">+1 分</button>
     <button class="btn" onclick="adjustTime(-60000)">-1 分</button>
@@ -304,7 +304,7 @@
 
 <script>
   let currentMode = 'game';
-  let defaultDuration = 8 * 60 * 1000;
+  let defaultDuration = 5 * 60 * 1000;
   let remainingMs = defaultDuration;
   let isRunning = false;
   let lastTimestamp = null;
@@ -312,6 +312,7 @@
   let lastCountdownSec = -1;
   let hasTriggeredOneMinAlert = false;
   let hasTriggeredRest15sAlert = false;
+  let wakeLock = null;
 
   // Web Audio API 用のコンテキスト
   let audioCtx = null;
@@ -342,9 +343,42 @@
     }
   }
 
+  // ==== スリープ防止 (Screen Wake Lock API) ====
+  async function requestWakeLock() {
+    try {
+      if ('wakeLock' in navigator) {
+        wakeLock = await navigator.wakeLock.request('screen');
+        console.log('Wake Lock is active');
+        
+        wakeLock.addEventListener('release', () => {
+          console.log('Wake Lock was released');
+        });
+      }
+    } catch (err) {
+      console.error(`${err.name}, ${err.message}`);
+    }
+  }
+
+  function releaseWakeLock() {
+    if (wakeLock !== null) {
+      wakeLock.release().then(() => {
+        wakeLock = null;
+        console.log('Wake Lock released manually');
+      });
+    }
+  }
+
+  document.addEventListener('visibilitychange', async () => {
+    if (wakeLock !== null && document.visibilityState === 'visible' && isRunning) {
+      await requestWakeLock();
+    }
+  });
+
+
   // 画面初回のタッチで発火させて制限を確実に解除
   document.addEventListener('touchstart', function unlockFirst() {
     initAudioEngine();
+    requestWakeLock();
     if ('speechSynthesis' in window) {
       const dummyUtter = new SpeechSynthesisUtterance('');
       dummyUtter.volume = 0;
@@ -359,10 +393,11 @@
   function safeSpeak(text) {
     if (!('speechSynthesis' in window)) return;
     initAudioEngine();
-    window.speechSynthesis.cancel(); // 前の音声をクリア
+    window.speechSynthesis.cancel(); 
 
     const utter = new SpeechSynthesisUtterance(text);
     utter.lang = 'en-US';
+    // 周囲の音に負けないよう、少し高め・早めに設定
     utter.rate = 1.25;
     utter.pitch = 1.05;
     utter.volume = 1.0;
@@ -374,7 +409,31 @@
     safeSpeak(text);
   }
 
-  // 強烈な音圧の2連ブザー（1分前 / 15秒前）
+  // 1分前の短いベル音（澄んだチーン！という音）
+  function playBellSound() {
+    initAudioEngine();
+    const now = audioCtx.currentTime;
+    const duration = 0.8; // 余韻を含む長さ
+
+    const gainNode = audioCtx.createGain();
+    gainNode.gain.setValueAtTime(1.0, now);
+    // 指数的に減衰させてベルの響きを作る
+    gainNode.gain.exponentialRampToValueAtTime(0.001, now + duration);
+    gainNode.connect(audioCtx.destination);
+
+    // ベルらしい金属的な和音（サイン波）
+    const freqs = [1046.5, 1318.5, 1567.9]; // C6, E6, G6
+    freqs.forEach(f => {
+      const osc = audioCtx.createOscillator();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(f, now);
+      osc.connect(gainNode);
+      osc.start(now);
+      osc.stop(now + duration);
+    });
+  }
+
+  // 休憩の残り15秒はビビッ！を鳴らす
   function playLowAlert() {
     initAudioEngine();
     const now = audioCtx.currentTime;
@@ -386,17 +445,15 @@
 
   function createSquareBeep(startTime, duration) {
     const gainNode = audioCtx.createGain();
-    // アタックを強く、減衰を急にする
     gainNode.gain.setValueAtTime(1.0, startTime);
     gainNode.gain.setValueAtTime(1.0, startTime + duration - 0.05);
     gainNode.gain.exponentialRampToValueAtTime(0.001, startTime + duration);
     gainNode.connect(audioCtx.destination);
 
-    // 矩形波とノコギリ波を混ぜて、電子ブザー特有の「ビビッ！」という太い音を合成
     const freqs = [220, 330, 440];
     freqs.forEach(f => {
       const osc = audioCtx.createOscillator();
-      osc.type = 'square'; // 矩形波
+      osc.type = 'square';
       osc.frequency.setValueAtTime(f, startTime);
       osc.connect(gainNode);
       osc.start(startTime);
@@ -404,7 +461,7 @@
     });
   }
 
-  // アリーナホーン（タイムアップ時の甲高いブーッ！）
+  // アリーナホーン
   function playBuzzer() {
     initAudioEngine();
     if ('speechSynthesis' in window) {
@@ -419,11 +476,10 @@
     gainNode.gain.exponentialRampToValueAtTime(0.001, now + duration);
     gainNode.connect(audioCtx.destination);
 
-    // 不協和音で緊迫感を出す
     const freqs = [420, 560, 840];
     freqs.forEach(f => {
       const osc = audioCtx.createOscillator();
-      osc.type = 'sawtooth'; // ノコギリ波
+      osc.type = 'sawtooth';
       osc.frequency.setValueAtTime(f, now);
       osc.connect(gainNode);
       osc.start(now);
@@ -433,15 +489,16 @@
 
   function testBuzzer() {
     initAudioEngine();
+    requestWakeLock();
     speakStart();
     setTimeout(() => {
-      playLowAlert();
+      playBellSound();
       setTimeout(() => {
         safeSpeak("3");
         setTimeout(() => safeSpeak("2"), 650);
         setTimeout(() => safeSpeak("1"), 1300);
         setTimeout(() => playBuzzer(), 1950);
-      }, 800);
+      }, 1000);
     }, 1100);
   }
 
@@ -449,6 +506,7 @@
 
   function toggleFullScreen() {
     initAudioEngine();
+    requestWakeLock();
     if (!document.fullscreenElement && !document.webkitFullscreenElement) {
       const docEl = document.documentElement;
       if (docEl.requestFullscreen) {
@@ -479,6 +537,7 @@
 
   function setMode(mode, ms) {
     initAudioEngine();
+    requestWakeLock();
     if (animationFrameId) cancelAnimationFrame(animationFrameId);
     if ('speechSynthesis' in window) window.speechSynthesis.cancel();
     isRunning = false;
@@ -498,7 +557,7 @@
     if (mode === 'game') {
       btnGameEl.classList.add('active');
       btnRestEl.classList.remove('active');
-      modeLabelEl.textContent = 'GAME (8:00)';
+      modeLabelEl.textContent = 'GAME (5:00)';
       modeLabelEl.className = 'mode-label';
       displayEl.classList.remove('rest');
       displayBgEl.classList.remove('rest');
@@ -522,7 +581,6 @@
         html += '<span class="slot-sep">' + char + '</span>';
         bgHtml += '<span class="slot-sep">' + char + '</span>';
       } else if (char === ' ') {
-        // 空白（10の位が0の場合）は不可視の0を置いてレイアウトを保つ
         html += '<span class="slot-num" style="visibility: hidden;">0</span>';
         bgHtml += '<span class="slot-num">8</span>';
       } else {
@@ -542,15 +600,13 @@
 
   function updateDisplay() {
     if (remainingMs <= 0) {
-      renderDigits(" 0.0", true); // 0秒ジャストの場合は10の位を非表示
+      renderDigits(" 0.0", true); 
       return;
     }
     
-    // 残り1分を切ったら、コンマ秒表示へ
     if (remainingMs < 60000) {
       const totalSeconds = (remainingMs / 1000);
       let secStr = totalSeconds.toFixed(1);
-      // 10秒未満の場合、10の位にスペース（非表示）を入れる
       if (totalSeconds < 10) {
         secStr = " " + secStr;
       }
@@ -561,7 +617,6 @@
     const totalSec = Math.ceil(remainingMs / 1000);
     const m = Math.floor(totalSec / 60);
     const s = totalSec % 60;
-    // 分の10の位が0の場合はスペースでパディングして非表示に
     const mStr = String(m).padStart(2, ' ');
     const sStr = String(s).padStart(2, '0');
     renderDigits(mStr + ':' + sStr, false);
@@ -579,13 +634,13 @@
 
     remainingMs -= elapsed;
 
-    // GAMEモード: 残り1分到達時
+    // GAMEモード: 残り1分到達時（短いベル音）
     if (currentMode === 'game' && remainingMs <= 60000 && !hasTriggeredOneMinAlert) {
       hasTriggeredOneMinAlert = true;
-      playLowAlert();
+      playBellSound();
     }
 
-    // 休憩モード: 残り15秒到達時
+    // 休憩モード: 残り15秒到達時（ブザー "ビビッ！"）
     if (currentMode === 'rest' && remainingMs <= 15000 && !hasTriggeredRest15sAlert) {
       hasTriggeredRest15sAlert = true;
       playLowAlert();
@@ -612,6 +667,7 @@
       statusBadgeEl.className = 'status-badge ended';
       tapHintEl.textContent = currentMode === 'game' ? '試合終了' : '休憩終了';
       playBuzzer();
+      releaseWakeLock();
       return;
     }
 
@@ -621,6 +677,7 @@
 
   function toggleTimer() {
     initAudioEngine();
+    requestWakeLock();
     if (remainingMs <= 0) {
       setMode(currentMode, defaultDuration);
       return;
@@ -642,11 +699,13 @@
       statusBadgeEl.textContent = 'PAUSED';
       statusBadgeEl.className = 'status-badge paused';
       tapHintEl.textContent = 'タップで RESUME';
+      releaseWakeLock();
     }
   }
 
   function adjustTime(deltaMs) {
     initAudioEngine();
+    requestWakeLock();
     remainingMs = Math.max(0, remainingMs + deltaMs);
     lastCountdownSec = -1;
     if (remainingMs > 60000) {
@@ -669,10 +728,17 @@
       e.preventDefault();
       toggleTimer();
     } else if (e.code === 'KeyG') {
-      setMode('game', 8 * 60 * 1000);
+      setMode('game', 5 * 60 * 1000);
     } else if (e.code === 'KeyR') {
       setMode('rest', 75 * 1000);
     }
+  });
+
+  ['touchstart', 'click'].forEach(evt => {
+    document.addEventListener(evt, function unlockAudio() {
+      initAudioEngine();
+      if(isRunning) requestWakeLock();
+    }, { passive: true });
   });
 
   updateDisplay();
