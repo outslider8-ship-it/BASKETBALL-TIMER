@@ -214,9 +214,9 @@
     flex-shrink: 0;
     background-color: #0a0a0a;
     display: grid;
-    grid-template-columns: 1.2fr 1.2fr 1fr 1fr 1fr 1fr 0.9fr;
-    gap: 5px;
-    padding: 6px 8px;
+    grid-template-columns: repeat(10, 1fr);
+    gap: 4px;
+    padding: 6px 6px;
     border-top: 2px solid #1a1a1a;
   }
   .btn {
@@ -224,7 +224,7 @@
     color: #f0f0f0;
     border: none;
     border-radius: 8px;
-    font-size: clamp(0.78rem, 1.5vw, 1.05rem);
+    font-size: clamp(0.7rem, 1.4vw, 1rem);
     font-weight: 800;
     cursor: pointer;
     display: flex;
@@ -293,8 +293,11 @@
   </div>
 
   <div class="controls">
-    <button class="btn btn-mode btn-game active" id="btnGame" onclick="setMode('game', 5 * 60 * 1000)">GAME<br>(5分)</button>
-    <button class="btn btn-mode btn-rest" id="btnRest" onclick="setMode('rest', 75 * 1000)">休憩<br>(1:15)</button>
+    <button class="btn btn-mode btn-game active" id="btnGame5" onclick="setMode('game', 5 * 60 * 1000, 'btnGame5', 'GAME (5:00)')">5分</button>
+    <button class="btn btn-mode btn-game" id="btnGame6" onclick="setMode('game', 6 * 60 * 1000, 'btnGame6', 'GAME (6:00)')">6分</button>
+    <button class="btn btn-mode btn-game" id="btnGame7" onclick="setMode('game', 7 * 60 * 1000, 'btnGame7', 'GAME (7:00)')">7分</button>
+    <button class="btn btn-mode btn-game" id="btnGame8" onclick="setMode('game', 8 * 60 * 1000, 'btnGame8', 'GAME (8:00)')">8分</button>
+    <button class="btn btn-mode btn-rest" id="btnRest" onclick="setMode('rest', 75 * 1000, 'btnRest', '休憩 (1:15)')">休憩</button>
     <button class="btn" onclick="adjustTime(60000)">+1 分</button>
     <button class="btn" onclick="adjustTime(-60000)">-1 分</button>
     <button class="btn" onclick="adjustTime(10000)">+10 秒</button>
@@ -304,6 +307,8 @@
 
 <script>
   let currentMode = 'game';
+  let currentBtnId = 'btnGame5';
+  let currentLabelText = 'GAME (5:00)';
   let defaultDuration = 5 * 60 * 1000;
   let remainingMs = defaultDuration;
   let isRunning = false;
@@ -314,8 +319,9 @@
   let hasTriggeredRest15sAlert = false;
   let wakeLock = null;
 
-  // Web Audio API 用のコンテキスト
+  // Web Audio API 用のコンテキスト＆Bluetoothスリープ防止用オシレーター
   let audioCtx = null;
+  let keepAliveOsc = null;
 
   const displayEl = document.getElementById('display');
   const displayBgEl = document.getElementById('displayBg');
@@ -323,9 +329,27 @@
   const statusBadgeEl = document.getElementById('statusBadge');
   const tapHintEl = document.getElementById('tapHint');
   const modeLabelEl = document.getElementById('modeLabel');
-  const btnGameEl = document.getElementById('btnGame');
-  const btnRestEl = document.getElementById('btnRest');
   const fsBtnEl = document.getElementById('fsBtn');
+
+  // Bluetoothスリープ＆頭切れ防止（極小音キープアライブ）
+  // ※20kHz付近はBluetoothのSBC/AACコーデックでカットされ無音扱いになりやすいため、
+  // コーデックを通過しやすく人間には聞こえない 60Hz / ゲイン0.0006（約-64dB）を常時出力
+  function startBluetoothKeepAlive() {
+    if (!audioCtx || keepAliveOsc) return;
+    try {
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(60, audioCtx.currentTime);
+      gain.gain.setValueAtTime(0.0006, audioCtx.currentTime);
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.start();
+      keepAliveOsc = osc;
+    } catch (e) {
+      console.error('Keep-Alive start error:', e);
+    }
+  }
 
   // モバイル端末でのオーディオ＆音声合成エンジンのロック解除
   function initAudioEngine() {
@@ -336,6 +360,7 @@
     if (audioCtx.state === 'suspended') {
       audioCtx.resume();
     }
+    startBluetoothKeepAlive();
     if ('speechSynthesis' in window) {
       if (window.speechSynthesis.paused) {
         window.speechSynthesis.resume();
@@ -348,8 +373,6 @@
     try {
       if ('wakeLock' in navigator) {
         wakeLock = await navigator.wakeLock.request('screen');
-        console.log('Wake Lock is active');
-        
         wakeLock.addEventListener('release', () => {
           console.log('Wake Lock was released');
         });
@@ -363,19 +386,22 @@
     if (wakeLock !== null) {
       wakeLock.release().then(() => {
         wakeLock = null;
-        console.log('Wake Lock released manually');
       });
     }
   }
 
   document.addEventListener('visibilitychange', async () => {
-    if (wakeLock !== null && document.visibilityState === 'visible' && isRunning) {
-      await requestWakeLock();
+    if (document.visibilityState === 'visible') {
+      if (audioCtx && audioCtx.state === 'suspended') {
+        audioCtx.resume();
+      }
+      if (wakeLock !== null && isRunning) {
+        await requestWakeLock();
+      }
     }
   });
 
-
-  // 画面初回のタッチで発火させて制限を確実に解除
+  // 画面初回のタッチで発火させて制限を確実に解除＆BTキープアライブ開始
   document.addEventListener('touchstart', function unlockFirst() {
     initAudioEngine();
     requestWakeLock();
@@ -393,11 +419,10 @@
   function safeSpeak(text) {
     if (!('speechSynthesis' in window)) return;
     initAudioEngine();
-    window.speechSynthesis.cancel(); 
+    window.speechSynthesis.cancel();
 
     const utter = new SpeechSynthesisUtterance(text);
     utter.lang = 'en-US';
-    // 周囲の音に負けないよう、少し高め・早めに設定
     utter.rate = 1.25;
     utter.pitch = 1.05;
     utter.volume = 1.0;
@@ -409,20 +434,22 @@
     safeSpeak(text);
   }
 
-  // 1分前の短いベル音（澄んだチーン！という音）
+  function speakOneMinute() {
+    safeSpeak("1 minute");
+  }
+
+  // 1分前の高く澄んだ短いベル音（チーン！）
   function playBellSound() {
     initAudioEngine();
     const now = audioCtx.currentTime;
-    const duration = 0.8; // 余韻を含む長さ
+    const duration = 1.2;
 
     const gainNode = audioCtx.createGain();
     gainNode.gain.setValueAtTime(1.0, now);
-    // 指数的に減衰させてベルの響きを作る
     gainNode.gain.exponentialRampToValueAtTime(0.001, now + duration);
     gainNode.connect(audioCtx.destination);
 
-    // ベルらしい金属的な和音（サイン波）
-    const freqs = [1046.5, 1318.5, 1567.9]; // C6, E6, G6
+    const freqs = [4186.0, 5274.0, 6272.0, 8372.0];
     freqs.forEach(f => {
       const osc = audioCtx.createOscillator();
       osc.type = 'sine';
@@ -535,13 +562,15 @@
     }
   }
 
-  function setMode(mode, ms) {
+  function setMode(mode, ms, btnId, labelText) {
     initAudioEngine();
     requestWakeLock();
     if (animationFrameId) cancelAnimationFrame(animationFrameId);
     if ('speechSynthesis' in window) window.speechSynthesis.cancel();
     isRunning = false;
     currentMode = mode;
+    currentBtnId = btnId;
+    currentLabelText = labelText;
     defaultDuration = ms;
     remainingMs = ms;
     lastTimestamp = null;
@@ -554,17 +583,19 @@
     statusBadgeEl.className = 'status-badge';
     tapHintEl.textContent = '画面タップで START';
 
+    // 全モードボタンの active を解除
+    document.querySelectorAll('.btn-mode').forEach(btn => btn.classList.remove('active'));
+    // クリックされたボタンを active に
+    if (btnId) {
+      document.getElementById(btnId).classList.add('active');
+    }
+
+    modeLabelEl.textContent = labelText;
     if (mode === 'game') {
-      btnGameEl.classList.add('active');
-      btnRestEl.classList.remove('active');
-      modeLabelEl.textContent = 'GAME (5:00)';
       modeLabelEl.className = 'mode-label';
       displayEl.classList.remove('rest');
       displayBgEl.classList.remove('rest');
     } else {
-      btnRestEl.classList.add('active');
-      btnGameEl.classList.remove('active');
-      modeLabelEl.textContent = '休憩 (1:15)';
       modeLabelEl.className = 'mode-label rest';
       displayEl.classList.add('rest');
       displayBgEl.classList.add('rest');
@@ -600,7 +631,7 @@
 
   function updateDisplay() {
     if (remainingMs <= 0) {
-      renderDigits(" 0.0", true); 
+      renderDigits(" 0.0", true);
       return;
     }
     
@@ -634,10 +665,11 @@
 
     remainingMs -= elapsed;
 
-    // GAMEモード: 残り1分到達時（短いベル音）
+    // GAMEモード: 残り1分到達時（短いベル音＋アナウンス）
     if (currentMode === 'game' && remainingMs <= 60000 && !hasTriggeredOneMinAlert) {
       hasTriggeredOneMinAlert = true;
       playBellSound();
+      speakOneMinute();
     }
 
     // 休憩モード: 残り15秒到達時（ブザー "ビビッ！"）
@@ -679,7 +711,7 @@
     initAudioEngine();
     requestWakeLock();
     if (remainingMs <= 0) {
-      setMode(currentMode, defaultDuration);
+      setMode(currentMode, defaultDuration, currentBtnId, currentLabelText);
       return;
     }
 
@@ -728,16 +760,16 @@
       e.preventDefault();
       toggleTimer();
     } else if (e.code === 'KeyG') {
-      setMode('game', 5 * 60 * 1000);
+      setMode('game', 5 * 60 * 1000, 'btnGame5', 'GAME (5:00)');
     } else if (e.code === 'KeyR') {
-      setMode('rest', 75 * 1000);
+      setMode('rest', 75 * 1000, 'btnRest', '休憩 (1:15)');
     }
   });
 
   ['touchstart', 'click'].forEach(evt => {
     document.addEventListener(evt, function unlockAudio() {
       initAudioEngine();
-      if(isRunning) requestWakeLock();
+      if (isRunning) requestWakeLock();
     }, { passive: true });
   });
 
