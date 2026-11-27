@@ -37,11 +37,30 @@
     padding: 0 10px;
     border-bottom: 2px solid #1f1f1f;
   }
+  .header-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
   .header .title {
     font-size: 0.8rem;
     font-weight: 800;
     letter-spacing: 1.5px;
     color: #555;
+  }
+  .audio-badge {
+    font-size: 0.68rem;
+    font-weight: 800;
+    padding: 1px 6px;
+    border-radius: 4px;
+    background-color: #2a1a00;
+    color: #ffab00;
+    border: 1px solid #553800;
+  }
+  .audio-badge.active {
+    background-color: #002e14;
+    color: #00e676;
+    border-color: #00602a;
   }
   .header-right {
     display: flex;
@@ -264,7 +283,10 @@
 <body>
 
   <div class="header">
-    <div class="title">BASKETBALL TIMER</div>
+    <div class="header-left">
+      <div class="title">BASKETBALL TIMER</div>
+      <div id="audioBadge" class="audio-badge">AUDIO: 待機</div>
+    </div>
     <div class="header-right">
       <button class="btn-fs" onclick="toggleFullScreen()" id="fsBtn">⛶ 全画面</button>
       <div id="statusBadge" class="status-badge">READY</div>
@@ -311,37 +333,76 @@
   let currentLabelText = 'GAME (5:00)';
   let defaultDuration = 5 * 60 * 1000;
   let remainingMs = defaultDuration;
+  let targetEndTime = null;
   let isRunning = false;
-  let lastTimestamp = null;
-  let animationFrameId = null;
+  let timerIntervalId = null;
   let lastCountdownSec = -1;
   let hasTriggeredOneMinAlert = false;
   let hasTriggeredRest15sAlert = false;
   let wakeLock = null;
 
-  // Web Audio API 用のコンテキスト＆Bluetoothスリープ防止用オシレーター
+  // Web Audio API 関連
   let audioCtx = null;
+  let masterOut = null;
   let keepAliveOsc = null;
+
+  // SpeechSynthesis 安定化関連
+  let selectedVoice = null;
+  let activeUtterances = []; // GC（途中切断）防止用
+  let speakDelayTimer = null;
 
   const displayEl = document.getElementById('display');
   const displayBgEl = document.getElementById('displayBg');
   const timerBoxEl = document.getElementById('timerBox');
   const statusBadgeEl = document.getElementById('statusBadge');
+  const audioBadgeEl = document.getElementById('audioBadge');
   const tapHintEl = document.getElementById('tapHint');
   const modeLabelEl = document.getElementById('modeLabel');
   const fsBtnEl = document.getElementById('fsBtn');
 
-  // Bluetoothスリープ＆頭切れ防止（極小音キープアライブ）
-  // ※20kHz付近はBluetoothのSBC/AACコーデックでカットされ無音扱いになりやすいため、
-  // コーデックを通過しやすく人間には聞こえない 60Hz / ゲイン0.0006（約-64dB）を常時出力
+  // ====== ローカル音声の優先選択（Windows/Edgeのオンライン音声による途切れ・無音を回避） ======
+  function selectBestVoice() {
+    if (!('speechSynthesis' in window)) return;
+    const voices = window.speechSynthesis.getVoices();
+    if (!voices || voices.length === 0) return;
+
+    // 1. 端末内ローカルの英語音声（通信不要で最も途切れにくい）
+    let voice = voices.find(v => v.localService && /^en[-_](US|GB)/i.test(v.lang));
+    if (!voice) voice = voices.find(v => v.localService && /^en/i.test(v.lang));
+    // 2. オンライン時のみクラウド英語音声を許可（オフライン時はローカル日本語等に逃がす）
+    if (!voice && navigator.onLine) {
+      voice = voices.find(v => /^en[-_]US/i.test(v.lang)) || voices.find(v => /^en/i.test(v.lang));
+    }
+    // 3. 英語ローカルが無いオフライン環境ではローカル音声を使用
+    if (!voice) voice = voices.find(v => v.localService);
+    selectedVoice = voice || voices[0] || null;
+  }
+
+  if ('speechSynthesis' in window) {
+    selectBestVoice();
+    window.speechSynthesis.onvoiceschanged = selectBestVoice;
+  }
+
+  // ====== Web Audio API 初期化・コンプレッサー・Bluetoothスリープ防止 ======
+  function updateAudioBadge() {
+    if (audioCtx && audioCtx.state === 'running') {
+      audioBadgeEl.textContent = 'AUDIO: ON';
+      audioBadgeEl.classList.add('active');
+    } else {
+      audioBadgeEl.textContent = 'AUDIO: 待機';
+      audioBadgeEl.classList.remove('active');
+    }
+  }
+
   function startBluetoothKeepAlive() {
     if (!audioCtx || keepAliveOsc) return;
     try {
       const osc = audioCtx.createOscillator();
       const gain = audioCtx.createGain();
+      // Bluetooth SBC/AACを通過しやすく、耳にはほぼ聞こえない100Hz・極小ゲイン
       osc.type = 'sine';
-      osc.frequency.setValueAtTime(60, audioCtx.currentTime);
-      gain.gain.setValueAtTime(0.0006, audioCtx.currentTime);
+      osc.frequency.setValueAtTime(100, audioCtx.currentTime);
+      gain.gain.setValueAtTime(0.0015, audioCtx.currentTime);
       osc.connect(gain);
       gain.connect(audioCtx.destination);
       osc.start();
@@ -351,20 +412,42 @@
     }
   }
 
-  // モバイル端末でのオーディオ＆音声合成エンジンのロック解除
-  function initAudioEngine() {
+  async function ensureAudioRunning() {
     if (!audioCtx) {
       const AudioContextClass = window.AudioContext || window.webkitAudioContext;
       audioCtx = new AudioContextClass();
+
+      // 音割れ・Bluetooth保護回路によるミュートを防ぐマスターリミッター
+      const compressor = audioCtx.createDynamicsCompressor();
+      compressor.threshold.setValueAtTime(-10, audioCtx.currentTime);
+      compressor.knee.setValueAtTime(6, audioCtx.currentTime);
+      compressor.ratio.setValueAtTime(12, audioCtx.currentTime);
+      compressor.attack.setValueAtTime(0.002, audioCtx.currentTime);
+      compressor.release.setValueAtTime(0.15, audioCtx.currentTime);
+
+      const masterGain = audioCtx.createGain();
+      masterGain.gain.setValueAtTime(0.95, audioCtx.currentTime);
+
+      compressor.connect(masterGain);
+      masterGain.connect(audioCtx.destination);
+      masterOut = compressor;
+
+      audioCtx.onstatechange = updateAudioBadge;
     }
+
     if (audioCtx.state === 'suspended') {
-      audioCtx.resume();
-    }
-    startBluetoothKeepAlive();
-    if ('speechSynthesis' in window) {
-      if (window.speechSynthesis.paused) {
-        window.speechSynthesis.resume();
+      try {
+        await audioCtx.resume();
+      } catch (e) {
+        console.error('AudioContext resume error:', e);
       }
+    }
+
+    startBluetoothKeepAlive();
+    updateAudioBadge();
+
+    if ('speechSynthesis' in window && window.speechSynthesis.paused) {
+      window.speechSynthesis.resume();
     }
   }
 
@@ -386,68 +469,98 @@
     if (wakeLock !== null) {
       wakeLock.release().then(() => {
         wakeLock = null;
-      });
+      }).catch(() => {});
     }
   }
 
   document.addEventListener('visibilitychange', async () => {
     if (document.visibilityState === 'visible') {
-      if (audioCtx && audioCtx.state === 'suspended') {
-        audioCtx.resume();
-      }
-      if (wakeLock !== null && isRunning) {
+      await ensureAudioRunning();
+      if (isRunning) {
         await requestWakeLock();
       }
     }
   });
 
-  // 画面初回のタッチで発火させて制限を確実に解除＆BTキープアライブ開始
-  document.addEventListener('touchstart', function unlockFirst() {
-    initAudioEngine();
-    requestWakeLock();
+  // 初回ユーザー操作で確実にアンロック
+  function handleFirstInteraction() {
+    ensureAudioRunning();
+    selectBestVoice();
     if ('speechSynthesis' in window) {
       const dummyUtter = new SpeechSynthesisUtterance('');
       dummyUtter.volume = 0;
       window.speechSynthesis.speak(dummyUtter);
     }
-    document.removeEventListener('touchstart', unlockFirst);
-  }, { once: true });
-
+  }
+  document.addEventListener('pointerdown', handleFirstInteraction, { once: true });
 
   // ====== 音声・ブザー再生ロジック ======
 
-  function safeSpeak(text) {
+  // Chromium(Edge/Chrome)の cancel() 直後 speak() 無音バグ＆GC途中切断を回避
+  function safeSpeak(text, forceInterrupt = false) {
     if (!('speechSynthesis' in window)) return;
-    initAudioEngine();
-    window.speechSynthesis.cancel();
+    ensureAudioRunning();
 
-    const utter = new SpeechSynthesisUtterance(text);
-    utter.lang = 'en-US';
-    utter.rate = 1.25;
-    utter.pitch = 1.05;
-    utter.volume = 1.0;
-    window.speechSynthesis.speak(utter);
+    if (speakDelayTimer) {
+      clearTimeout(speakDelayTimer);
+      speakDelayTimer = null;
+    }
+
+    const doSpeak = () => {
+      if (!selectedVoice) selectBestVoice();
+      const utter = new SpeechSynthesisUtterance(text);
+      if (selectedVoice) {
+        utter.voice = selectedVoice;
+        utter.lang = selectedVoice.lang;
+      } else {
+        utter.lang = 'en-US';
+      }
+      utter.rate = 1.2;
+      utter.pitch = 1.05;
+      utter.volume = 1.0;
+
+      // GCによる発話途中切断を防ぐため参照を保持
+      activeUtterances.push(utter);
+      const cleanup = () => {
+        const idx = activeUtterances.indexOf(utter);
+        if (idx !== -1) activeUtterances.splice(idx, 1);
+      };
+      utter.onend = cleanup;
+      utter.onerror = cleanup;
+
+      try {
+        window.speechSynthesis.speak(utter);
+      } catch (e) {
+        cleanup();
+      }
+    };
+
+    // 発話中・待機中または強制割り込み時のみキャンセルし、60ms待ってから発話
+    if (forceInterrupt || window.speechSynthesis.speaking || window.speechSynthesis.pending) {
+      window.speechSynthesis.cancel();
+      speakDelayTimer = setTimeout(doSpeak, 60);
+    } else {
+      doSpeak();
+    }
   }
 
   function speakStart() {
     const text = (currentMode === 'rest') ? 'Water break' : 'Start';
-    safeSpeak(text);
-  }
-
-  function speakOneMinute() {
-    safeSpeak("1 minute");
+    safeSpeak(text, true);
   }
 
   // 1分前の高く澄んだ短いベル音（チーン！）
-  function playBellSound() {
-    initAudioEngine();
-    const now = audioCtx.currentTime;
-    const duration = 1.2;
+  async function playBellSound() {
+    await ensureAudioRunning();
+    if (!audioCtx || !masterOut) return;
+    const now = audioCtx.currentTime + 0.01;
+    const duration = 1.1;
 
     const gainNode = audioCtx.createGain();
-    gainNode.gain.setValueAtTime(1.0, now);
+    gainNode.gain.setValueAtTime(0.001, now);
+    gainNode.gain.linearRampToValueAtTime(0.45, now + 0.008);
     gainNode.gain.exponentialRampToValueAtTime(0.001, now + duration);
-    gainNode.connect(audioCtx.destination);
+    gainNode.connect(masterOut);
 
     const freqs = [4186.0, 5274.0, 6272.0, 8372.0];
     freqs.forEach(f => {
@@ -456,26 +569,26 @@
       osc.frequency.setValueAtTime(f, now);
       osc.connect(gainNode);
       osc.start(now);
-      osc.stop(now + duration);
+      osc.stop(now + duration + 0.05);
     });
   }
 
   // 休憩の残り15秒はビビッ！を鳴らす
-  function playLowAlert() {
-    initAudioEngine();
-    const now = audioCtx.currentTime;
-    
-    // 0.2秒鳴る -> 0.1秒休む -> 0.2秒鳴る
+  async function playLowAlert() {
+    await ensureAudioRunning();
+    if (!audioCtx || !masterOut) return;
+    const now = audioCtx.currentTime + 0.01;
     createSquareBeep(now, 0.20);
     createSquareBeep(now + 0.30, 0.20);
   }
 
   function createSquareBeep(startTime, duration) {
     const gainNode = audioCtx.createGain();
-    gainNode.gain.setValueAtTime(1.0, startTime);
-    gainNode.gain.setValueAtTime(1.0, startTime + duration - 0.05);
+    gainNode.gain.setValueAtTime(0.001, startTime);
+    gainNode.gain.linearRampToValueAtTime(0.45, startTime + 0.005);
+    gainNode.gain.setValueAtTime(0.45, startTime + duration - 0.03);
     gainNode.gain.exponentialRampToValueAtTime(0.001, startTime + duration);
-    gainNode.connect(audioCtx.destination);
+    gainNode.connect(masterOut);
 
     const freqs = [220, 330, 440];
     freqs.forEach(f => {
@@ -484,24 +597,31 @@
       osc.frequency.setValueAtTime(f, startTime);
       osc.connect(gainNode);
       osc.start(startTime);
-      osc.stop(startTime + duration);
+      osc.stop(startTime + duration + 0.05);
     });
   }
 
-  // アリーナホーン
-  function playBuzzer() {
-    initAudioEngine();
+  // 終了時アリーナホーン（ブーッ！）
+  async function playBuzzer() {
     if ('speechSynthesis' in window) {
+      if (speakDelayTimer) {
+        clearTimeout(speakDelayTimer);
+        speakDelayTimer = null;
+      }
       window.speechSynthesis.cancel();
     }
-    const now = audioCtx.currentTime;
+    await ensureAudioRunning();
+    if (!audioCtx || !masterOut) return;
+
+    const now = audioCtx.currentTime + 0.01;
     const duration = 1.5;
 
     const gainNode = audioCtx.createGain();
-    gainNode.gain.setValueAtTime(1.0, now);
-    gainNode.gain.setValueAtTime(1.0, now + duration - 0.1);
+    gainNode.gain.setValueAtTime(0.001, now);
+    gainNode.gain.linearRampToValueAtTime(0.55, now + 0.01);
+    gainNode.gain.setValueAtTime(0.55, now + duration - 0.1);
     gainNode.gain.exponentialRampToValueAtTime(0.001, now + duration);
-    gainNode.connect(audioCtx.destination);
+    gainNode.connect(masterOut);
 
     const freqs = [420, 560, 840];
     freqs.forEach(f => {
@@ -510,29 +630,29 @@
       osc.frequency.setValueAtTime(f, now);
       osc.connect(gainNode);
       osc.start(now);
-      osc.stop(now + duration);
+      osc.stop(now + duration + 0.05);
     });
   }
 
   function testBuzzer() {
-    initAudioEngine();
+    ensureAudioRunning();
     requestWakeLock();
     speakStart();
     setTimeout(() => {
       playBellSound();
       setTimeout(() => {
         safeSpeak("3");
-        setTimeout(() => safeSpeak("2"), 650);
-        setTimeout(() => safeSpeak("1"), 1300);
-        setTimeout(() => playBuzzer(), 1950);
-      }, 1000);
+        setTimeout(() => safeSpeak("2"), 900);
+        setTimeout(() => safeSpeak("1"), 1800);
+        setTimeout(() => playBuzzer(), 2700);
+      }, 1200);
     }, 1100);
   }
 
   // ====== タイマー制御ロジック ======
 
   function toggleFullScreen() {
-    initAudioEngine();
+    ensureAudioRunning();
     requestWakeLock();
     if (!document.fullscreenElement && !document.webkitFullscreenElement) {
       const docEl = document.documentElement;
@@ -562,10 +682,17 @@
     }
   }
 
+  function stopTimerLoop() {
+    if (timerIntervalId !== null) {
+      clearInterval(timerIntervalId);
+      timerIntervalId = null;
+    }
+  }
+
   function setMode(mode, ms, btnId, labelText) {
-    initAudioEngine();
+    ensureAudioRunning();
     requestWakeLock();
-    if (animationFrameId) cancelAnimationFrame(animationFrameId);
+    stopTimerLoop();
     if ('speechSynthesis' in window) window.speechSynthesis.cancel();
     isRunning = false;
     currentMode = mode;
@@ -573,19 +700,17 @@
     currentLabelText = labelText;
     defaultDuration = ms;
     remainingMs = ms;
-    lastTimestamp = null;
+    targetEndTime = null;
     lastCountdownSec = -1;
-    hasTriggeredOneMinAlert = (ms < 60000);
-    hasTriggeredRest15sAlert = (ms < 15000);
+    hasTriggeredOneMinAlert = (ms <= 60000);
+    hasTriggeredRest15sAlert = (ms <= 15000);
 
     timerBoxEl.classList.remove('ended');
     statusBadgeEl.textContent = 'READY';
     statusBadgeEl.className = 'status-badge';
     tapHintEl.textContent = '画面タップで START';
 
-    // 全モードボタンの active を解除
     document.querySelectorAll('.btn-mode').forEach(btn => btn.classList.remove('active'));
-    // クリックされたボタンを active に
     if (btnId) {
       document.getElementById(btnId).classList.add('active');
     }
@@ -653,23 +778,15 @@
     renderDigits(mStr + ':' + sStr, false);
   }
 
-  function tick(currentTimestamp) {
+  function tick() {
     if (!isRunning) return;
 
-    if (!lastTimestamp) {
-      lastTimestamp = currentTimestamp;
-    }
+    remainingMs = targetEndTime - Date.now();
 
-    const elapsed = currentTimestamp - lastTimestamp;
-    lastTimestamp = currentTimestamp;
-
-    remainingMs -= elapsed;
-
-    // GAMEモード: 残り1分到達時（短いベル音＋アナウンス）
+    // GAMEモード: 残り1分到達時（超高音ベルのみ・音声干渉なし）
     if (currentMode === 'game' && remainingMs <= 60000 && !hasTriggeredOneMinAlert) {
       hasTriggeredOneMinAlert = true;
       playBellSound();
-      speakOneMinute();
     }
 
     // 休憩モード: 残り15秒到達時（ブザー "ビビッ！"）
@@ -678,12 +795,12 @@
       playLowAlert();
     }
 
-    // 10秒〜1秒 英語カウントダウン
-    if (remainingMs > 0 && remainingMs <= 10000) {
-      const currentSec = Math.floor(remainingMs / 1000) + 1;
+    // 10秒〜1秒 カウントダウン（10.0秒→10, 9.0秒→9 ... 1.0秒→1）
+    if (remainingMs > 0 && remainingMs <= 10050) {
+      const currentSec = Math.ceil(remainingMs / 1000);
       if (currentSec !== lastCountdownSec && currentSec <= 10 && currentSec >= 1) {
         lastCountdownSec = currentSec;
-        safeSpeak(String(currentSec));
+        safeSpeak(String(currentSec), false);
       }
     } else {
       lastCountdownSec = -1;
@@ -692,6 +809,7 @@
     if (remainingMs <= 0) {
       remainingMs = 0;
       isRunning = false;
+      stopTimerLoop();
       lastCountdownSec = -1;
       updateDisplay();
       timerBoxEl.classList.add('ended');
@@ -704,11 +822,10 @@
     }
 
     updateDisplay();
-    animationFrameId = requestAnimationFrame(tick);
   }
 
   function toggleTimer() {
-    initAudioEngine();
+    ensureAudioRunning();
     requestWakeLock();
     if (remainingMs <= 0) {
       setMode(currentMode, defaultDuration, currentBtnId, currentLabelText);
@@ -718,27 +835,35 @@
     isRunning = !isRunning;
 
     if (isRunning) {
-      lastTimestamp = performance.now();
-      animationFrameId = requestAnimationFrame(tick);
+      targetEndTime = Date.now() + remainingMs;
+      stopTimerLoop();
+      timerIntervalId = setInterval(tick, 50);
       statusBadgeEl.textContent = 'RUNNING';
       statusBadgeEl.className = 'status-badge running';
       tapHintEl.textContent = 'タップで PAUSE';
       timerBoxEl.classList.remove('ended');
       speakStart();
     } else {
-      if (animationFrameId) cancelAnimationFrame(animationFrameId);
+      stopTimerLoop();
+      remainingMs = Math.max(0, targetEndTime - Date.now());
       if ('speechSynthesis' in window) window.speechSynthesis.cancel();
       statusBadgeEl.textContent = 'PAUSED';
       statusBadgeEl.className = 'status-badge paused';
       tapHintEl.textContent = 'タップで RESUME';
       releaseWakeLock();
+      updateDisplay();
     }
   }
 
   function adjustTime(deltaMs) {
-    initAudioEngine();
+    ensureAudioRunning();
     requestWakeLock();
-    remainingMs = Math.max(0, remainingMs + deltaMs);
+    if (isRunning) {
+      remainingMs = Math.max(0, (targetEndTime - Date.now()) + deltaMs);
+      targetEndTime = Date.now() + remainingMs;
+    } else {
+      remainingMs = Math.max(0, remainingMs + deltaMs);
+    }
     lastCountdownSec = -1;
     if (remainingMs > 60000) {
       hasTriggeredOneMinAlert = false;
@@ -759,16 +884,22 @@
     if (e.code === 'Space') {
       e.preventDefault();
       toggleTimer();
-    } else if (e.code === 'KeyG') {
+    } else if (e.code === 'KeyG' || e.code === 'Digit5') {
       setMode('game', 5 * 60 * 1000, 'btnGame5', 'GAME (5:00)');
+    } else if (e.code === 'Digit6') {
+      setMode('game', 6 * 60 * 1000, 'btnGame6', 'GAME (6:00)');
+    } else if (e.code === 'Digit7') {
+      setMode('game', 7 * 60 * 1000, 'btnGame7', 'GAME (7:00)');
+    } else if (e.code === 'Digit8') {
+      setMode('game', 8 * 60 * 1000, 'btnGame8', 'GAME (8:00)');
     } else if (e.code === 'KeyR') {
       setMode('rest', 75 * 1000, 'btnRest', '休憩 (1:15)');
     }
   });
 
-  ['touchstart', 'click'].forEach(evt => {
+  ['pointerdown', 'click'].forEach(evt => {
     document.addEventListener(evt, function unlockAudio() {
-      initAudioEngine();
+      ensureAudioRunning();
       if (isRunning) requestWakeLock();
     }, { passive: true });
   });
